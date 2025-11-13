@@ -8,7 +8,9 @@
 #include <queue>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
+#include <windows.h>
 
 struct HFTreeNode {
     std::unique_ptr<HFTreeNode> left = nullptr;
@@ -163,16 +165,17 @@ void writeToFile(const char *path, const std::vector<uint8_t> &binaryStream) {
     out.close();
 }
 
-std::vector<uint8_t> readBinaryFile(const std::string &filename) {
+std::vector<uint8_t> readBinaryFile(char* &filename) {
+    std::cout << filename << "\n";
     std::ifstream in(filename, std::ios::binary | std::ios::ate);
-    if (!in) throw std::runtime_error("Failed to open file:" + filename);
+    if (!in) throw std::runtime_error("Failed to open file:" + std::string(filename));
 
     const std::streamsize size = in.tellg();
     in.seekg(0, std::ios::beg);
 
     std::vector<uint8_t> buffer(size);
     if (!in.read(reinterpret_cast<char *>(buffer.data()), size)) {
-        throw std::runtime_error("Failed to read file: " + filename);
+        throw std::runtime_error("Failed to read file: " + std::string(filename));
     }
     return buffer;
 }
@@ -215,30 +218,35 @@ void printUsage(const std::string &progName) {
             << "  " << progName << " --decode input.huff -o test.txt\n";
 }
 
-std::string readTextFile(const std::string &input) {
+std::string readTextFile(char *input) {
     std::stringstream fullText;
     std::string line;
-    std::fstream file(input);
 
+    // Convert ANSI argv[1] → UTF-16 → UTF-8
+    int wideLen = MultiByteToWideChar(CP_ACP, 0, input, -1, nullptr, 0);
+    std::wstring wideArg(wideLen, L'\0');
+    MultiByteToWideChar(CP_ACP, 0, input, -1, &wideArg[0], wideLen);
+
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wideArg.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string utf8Arg(utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wideArg.c_str(), -1, &utf8Arg[0], utf8Len, nullptr, nullptr);
+
+    std::ifstream file(wideArg.data());
     if (!file.is_open()) {
-        std::cerr << "File not found";
-        exit(-1);
+        std::cerr << "Error: could not open file '" << utf8Arg << "'\n";
+        return "";
     }
 
-    while (std::getline(file, line)) {
-        // std::cout << "2\n";
-        // std::cout << line << "\n";
-        fullText << line;
+    while (getline(file, line)) {
+        fullText << line << '\n';
     }
-    std::cout << "2\n";
 
     return fullText.str();
 }
 
 void decompress(int argc, char **argv) {
-    const std::string INPUT = argv[2];
-    std::string OUTPUT;
-
+    char* INPUT = argv[2];
+    char* OUTPUT;
     // Parse optional arguments
     for (int i = 3; i < argc; ++i) {
         std::string arg = argv[i];
@@ -255,32 +263,56 @@ void decompress(int argc, char **argv) {
             return;
         }
     }
+    std::ofstream out(OUTPUT);
 
-    if (OUTPUT.empty()) {
-        OUTPUT = INPUT + ".huff";
-    }
 
-    const std::vector<uint8_t> decodedStream = readBinaryFile(INPUT);
+
+
+    const std::vector<uint8_t> decodedStream = readBinaryFile(argv[2]);
 
     std::stringstream bitStreamStr;
     for (uint8_t i: decodedStream) {
         bitStreamStr << std::bitset<8>(i).to_string();
     }
+    // std::cout << bitStreamStr.str() << "\n";
 
     std::size_t bitIndex = 24;
     const std::unique_ptr<HFTreeNode> deserializedTree = deserializeTree(bitStreamStr.str(), bitIndex);
 
-    std::string const decompressed = decodeString(deserializedTree.get(), bitStreamStr.str());
+    const std::string decompressed = decodeString(deserializedTree.get(), bitStreamStr.str());
+    // std::cout << decompressed << std::endl;
+    // std::cout << "Size: " << decompressed.size() << "\n";
+    // std::cout << test << "\n";
 
-    std::ofstream out(OUTPUT);
+    std::cout << OUTPUT << "\n";
+    // std::cout << decompressed << std::endl;
+
+    // std::cout << test << "\n";
+
+    if (!out.is_open()) {
+        std::cerr << "Error opening file " << OUTPUT << "\n";
+        return;
+    }
     out << decompressed;
-    std::cout << "Decompressed file complete";
+
+    // std::cout << decompressed << std::endl;
+    // std::cout << "Size: " << decompressed.size() << "\n";
+
+    // for (int i = 0; i < decompressed.size(); i++){
+    //     unsigned char c = decompressed[i];
+    //     // printf("%02X ", c);
+    //     printf("%d %d %c",decompressed.size(),i,c);
+    //     out << c;
+    //     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // }
+    out.close();
+    std::cout << "Decompressed file complete\n";
 }
 
-void compress(int const argc, char **argv) {
+void compress(int const argc, char **argv, const std::string& text) {
     std::string OUTPUT;
 
-    const char* INPUT = argv[1];
+    const std::string INPUT = argv[1];
 
     // Parse optional arguments
     for (int i = 2; i < argc; ++i) {
@@ -305,9 +337,6 @@ void compress(int const argc, char **argv) {
 
     std::cout << "Input file : " << INPUT << '\n';
     std::cout << "Output file: " << OUTPUT << '\n';
-
-    // Get text to be decoded
-    const std::string text = readTextFile(INPUT);
 
     // Create map to get the frequency of each character
     const std::map<char, int> map = getFreq(text);
@@ -338,6 +367,30 @@ int main(const int argc, char **argv) {
     if (std::strcmp(argv[1], "--decode") == 0) {
         decompress(argc, argv);
     } else {
-        compress(argc, argv);
+        // Convert ANSI argv[1] → UTF-16 → UTF-8
+        int wideLen = MultiByteToWideChar(CP_ACP, 0, argv[1], -1, nullptr, 0);
+        std::wstring wideArg(wideLen, L'\0');
+        MultiByteToWideChar(CP_ACP, 0, argv[1], -1, &wideArg[0], wideLen);
+
+        int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wideArg.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        std::string utf8Arg(utf8Len, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wideArg.c_str(), -1, &utf8Arg[0], utf8Len, nullptr, nullptr);
+
+        std::ifstream file(wideArg.data());
+        if (!file.is_open()) {
+            std::cerr << "Error: could not open file '" << utf8Arg << "'\n";
+            return 1;
+        }
+
+        std::stringstream fullText;
+        std::string line;
+        while (getline(file, line)) {
+            fullText << line << '\n';
+        }
+
+        // std::cout << fullText.str();
+        compress(argc, argv,fullText.str());
+
     }
+    return 0;
 }
