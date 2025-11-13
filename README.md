@@ -14,8 +14,6 @@ Copy code
 Example:
 program.exe input.txt -o output.huff
 
-csharp
-Copy code
 If `-o` is omitted, the default output is `<input>.huff`.
 
 ### Decompress
@@ -25,9 +23,6 @@ makefile
 Copy code
 Example:
 program.exe --decode input.huff -o restored.txt
-
-yaml
-Copy code
 
 ---
 
@@ -48,14 +43,10 @@ Requires Windows (uses WinAPI for filename encoding).
 ### g++
 g++ -std=c++17 -O2 -o huffman main.cpp
 
-shell
-Copy code
 
 ### MSVC
 cl /std:c++17 main.cpp
 
-yaml
-Copy code
 
 ---
 
@@ -64,3 +55,4 @@ Copy code
 - Designed for text files, not arbitrary binary data  
 - Produces a custom `.huff` file format  
 - Windows-specific due to filename encoding logic  
+
